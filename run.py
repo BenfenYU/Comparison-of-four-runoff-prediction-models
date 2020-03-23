@@ -4,7 +4,7 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 import tensorflow as tf
 import matplotlib.pyplot as plt
 import numpy as np
-import os,pickle,datetime
+import os,pickle,datetime,copy
 from sklearn import metrics,svm
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.linear_model import LinearRegression
@@ -29,12 +29,11 @@ TRAIN_SPLIT = 0.6
 TEST_SPLIT = 0.2
 BUFFER_SIZE = 1000
 BATCHSIZE = 128
-EPOCHS =  20
+EPOCHS =  50
 STEP = 1
 EVALUATION_INTERVAL = 200
 FUTURE_TARGET = 6
 RATE = 0.2
-lag_list = [15]
 RUNOFF = 0
 RAINFALL = 1
 
@@ -207,7 +206,7 @@ def plot_one_method(y_test,y_pre,label):
   linreg.fit(y_pre, y_test)
   y_l_pre = linreg.predict(x)
 
-  plt.scatter(y_pre, y_test,s = 2,)
+  plt.scatter(y_pre, y_test,s = 2,alpha=0.3)
   plt.plot(x,y_l_pre,label = label)
   plt.plot(x,x,c = 'k')
 
@@ -225,7 +224,7 @@ def plot_methods():
   net.pre_gru()
   plt.legend()
   plt.plot([0,1],[0,1],c = 'k',label = 'Diagonal')
-  title = "Data of Station G"
+  title = "Station A"
   plt.title(title)
   plt.show()
 
@@ -323,11 +322,11 @@ class DataProcess():
       # 训练集
       x_train_single, y_train_single = x_all[0:number],y_all[0:number]
       # 验证集
-      x_val_single, y_val_single = x_all[number:n2],y_all[number:n2]
+      #x_val_single, y_val_single = x_all[number:n2],y_all[number:n2]
       # 测试集
-      x_test, y_test = x_all[n2:],y_all[n2:]
+      x_test, y_test = x_all[number:],y_all[number:]
 
-      return (x_train_single, y_train_single,x_val_single, y_val_single,x_test, y_test)
+      return (x_train_single, y_train_single,x_test, y_test)
     else :
       return (x_all,y_all)
 
@@ -362,7 +361,6 @@ def mare(y_true,y_pred):
 
   return rmse
 
-
 class Net():
 
   def __init__(self,past_history = 15,future_target = FUTURE_TARGET):
@@ -381,14 +379,15 @@ class Net():
     return (rms_e,mar_e,ns_e)
 
   def pre_gru_multi(self,p):
-    x_test, y_test = self.data_p.trans_data(
+    _,_,x_test, y_test = self.data_p.trans_data(
                                             self.past_history,
                                             future_target = FUTURE_TARGET,
                                             time_dim=True,
-                                            all_data=True)
+                                            all_data=False)
     model = self.load_model_multi(GRUDIR_MULTI,FUTURE_TARGET)
     y_pre = model.predict(x_test)
 
+    
     y_pre = y_pre[:,p-1].reshape(-1,1)
     y_test = y_test[:,p-1].reshape(-1,1)
 
@@ -396,13 +395,14 @@ class Net():
     y_pre = self.data_p.inverse_trans(y_pre)
 
     print(self.eval(y_test,y_pre))
+    plot_one_method(y_test,y_pre,'GRU')
 
   def pre_lstm_multi(self,p):
-    x_test, y_test = self.data_p.trans_data(
+    _,_,x_test, y_test = self.data_p.trans_data(
                                             self.past_history,
                                             future_target = FUTURE_TARGET,
                                             time_dim=True,
-                                            all_data=True)
+                                            all_data=False)
     model = self.load_model_multi(LSTMDIR_MULTI,FUTURE_TARGET)
     y_pre = model.predict(x_test)
 
@@ -413,14 +413,15 @@ class Net():
     y_pre = self.data_p.inverse_trans(y_pre)
 
     print(self.eval(y_test,y_pre))
+    plot_one_method(y_test,y_pre,'LSTM')
 
   def pre_mlp_multi(self,p):
-    x_test, y_test = self.data_p.trans_data(
+    _,_,x_test, y_test = self.data_p.trans_data(
                                             self.past_history,
                                             future_target = FUTURE_TARGET,
                                             time_dim=False,
-                                            all_data=True)
-    model = self.load_model_multi(MLPDIR_MULTI,FUTURE_TARGET)
+                                            all_data=False)
+    model = self.load_model_multi(MLPDIR,FUTURE_TARGET)
     y_pre = model.predict(x_test)
 
     y_pre = y_pre[:,p-1].reshape(-1,1)
@@ -430,16 +431,21 @@ class Net():
     y_pre = self.data_p.inverse_trans(y_pre)
 
     print(self.eval(y_test,y_pre))
+    plot_one_method(y_test,y_pre,'MLP')
 
-  def pre_svr_multi(self,p):
-    with open(os.path.join(SVRDIR,
-        'step = {}'.format(str(self.past_history))),'rb') as f:
+  def pre_svr_multi(self,p):    
+    if(p != 1):
+      fdir =  'step = {},pre = {}'.format(str(self.past_history),str(p))
+    else:
+      fdir =  'step = {}'.format(str(self.past_history))
+
+    with open(os.path.join(SVRDIR,fdir),'rb') as f:
       clf = pickle.load(f)
 
-      x_test,y_test = self.data_p.trans_data(
+      _,_,x_test,y_test = self.data_p.trans_data(
                                             self.past_history,
                                             future_target = p,
-                                            all_data= True,
+                                            all_data= False,
                                             time_dim=False)
     y_pre = clf.predict(x_test)
 
@@ -450,6 +456,7 @@ class Net():
     y_pre = self.data_p.inverse_trans(y_pre)
 
     print(self.eval(y_test,y_pre))
+    plot_one_method(y_test,y_pre,'SVR')
 
   def pre_use_pre(self,target):
 
@@ -588,101 +595,99 @@ class Net():
 
   # lstm多步
   def train_lstm_multi(self):
+    # 训练集
+    x_train, y_train ,x_test, y_test = \
+                      self.data_p.trans_data(self.past_history,
+                                              future_target = FUTURE_TARGET)
 
-    # past_history是不同的timestep,做实验用
-    for past_history in lag_list:
-      # 训练集
-      x_train, y_train ,x_val, y_val,x_test, y_test = \
-                        self.data_p.trans_data(self.past_history,
-                                               future_target = FUTURE_TARGET)
+    train_data = tf.data.Dataset.from_tensor_slices((x_train, y_train))
+    train_data = train_data.cache().shuffle(BUFFER_SIZE).batch(BATCHSIZE).repeat()
 
-      train_data = tf.data.Dataset.from_tensor_slices((x_train, y_train))
-      train_data = train_data.cache().shuffle(BUFFER_SIZE).batch(BATCHSIZE).repeat()
-
-      val_data = tf.data.Dataset.from_tensor_slices((x_val, y_val))
-      val_data = val_data.batch(BATCHSIZE).repeat()
+    #val_data = tf.data.Dataset.from_tensor_slices((x_val, y_val))
+    #val_data = val_data.batch(BATCHSIZE).repeat()
 
 
-      model = Sequential()
-      model.add(LSTM(32,input_shape=x_train.shape[-2:],
-                                    return_sequences=True))
-      model.add(Dropout(RATE))
-      model.add(LSTM(32, return_sequences=True)) 
-      model.add(Dropout(RATE))
-      model.add(LSTM(32))  
-      model.add(Dropout(RATE))
-      model.add(Dense(FUTURE_TARGET))
-      model.add(Activation('tanh'))
+    model = Sequential()
+    model.add(LSTM(32,input_shape=x_train.shape[-2:],
+                                  return_sequences=True))
+    model.add(Dropout(RATE))
+    model.add(LSTM(32, return_sequences=True)) 
+    model.add(Dropout(RATE))
+    model.add(LSTM(32))  
+    model.add(Dropout(RATE))
+    model.add(Dense(FUTURE_TARGET))
+    model.add(Activation('tanh'))
 
-      model.compile(optimizer=RMSprop(), loss='mse',\
-        metrics=metric)
-      
-      # 训练
-      single_step_history = model.fit(train_data, epochs=EPOCHS,
-                                                  steps_per_epoch=EVALUATION_INTERVAL, # 一个epoch过完一遍数据
-                                                  validation_data=val_data,
-                                                  validation_steps=50)
+    model.compile(optimizer=RMSprop(), loss='mse',\
+      metrics=self.metric)
+    
+    # 训练
+    single_step_history = model.fit(train_data, epochs=EPOCHS,
+                                                steps_per_epoch=EVALUATION_INTERVAL # 一个epoch过完一遍数据
+                                                #validation_data=val_data,
+                                                #validation_steps=50
+                                                )
 
-      # 评估模型                                       
-      # results = model.evaluate(x_test, y_test)#, BATCHSIZE=BATCHSIZE)
+    # 评估模型                                       
+    #results = model.evaluate(x_test, y_test)#, BATCHSIZE=BATCHSIZE)
 
-      # 存储模型
-      keras_model_path = os.path.join(LSTMDIR_MULTI,"step = {},pre = {}".format(str(past_history),str(FUTURE_TARGET)))
-      model.save(keras_model_path)
+    # 存储模型
+    keras_model_path = os.path.join(LSTMDIR_MULTI,"step = {},pre = {}"\
+      .format(str(self.past_history),str(FUTURE_TARGET)))
+    model.save(keras_model_path)
 
-      '''
-      # 把评估结果写入磁盘
-      model_results_path = os.path.join(BASEDIR,'models','results.txt')
-      with open(model_results_path, 'a') as f:
-        f.write('\n'+str(past_history))
-        [f.write(','+str(k)) for k in results]
-        title = 'Training and validation loss(step:{})'.format(str(past_history))
-        plot_train_history(single_step_history,'Training and validation loss',
-                          os.path.join(BASEDIR,'models',title+'.jpg'))
-      '''
+    '''
+    # 把评估结果写入磁盘
+    model_results_path = os.path.join(BASEDIR,'models','results.txt')
+    with open(model_results_path, 'a') as f:
+      f.write('\n'+str(past_history))
+      [f.write(','+str(k)) for k in results]
+      title = 'Training and validation loss(step:{})'.format(str(past_history))
+      plot_train_history(single_step_history,'Training and validation loss',
+                        os.path.join(BASEDIR,'models',title+'.jpg'))
+    '''
 
   # gru多步
   def train_gru_multi(self):
+    # 训练集
+    x_train, y_train ,x_test, y_test = self.data_p.trans_data(self.past_history,
+                                                              future_target = FUTURE_TARGET)
 
-    # past_history是不同的timestep,做实验用
-    for past_history in lag_list:
-      # 训练集
-      x_train, y_train ,x_val, y_val,x_test, y_test = self.data_p.trans_data(self.past_history,
-                                                                future_target = FUTURE_TARGET)
+    train_data = tf.data.Dataset.from_tensor_slices((x_train, y_train))
+    train_data = train_data.cache().shuffle(BUFFER_SIZE).batch(BATCHSIZE).repeat()
 
-      train_data = tf.data.Dataset.from_tensor_slices((x_train, y_train))
-      train_data = train_data.cache().shuffle(BUFFER_SIZE).batch(BATCHSIZE).repeat()
-
-      val_data = tf.data.Dataset.from_tensor_slices((x_val, y_val))
-      val_data = val_data.batch(BATCHSIZE).repeat()
+    #val_data = tf.data.Dataset.from_tensor_slices((x_val, y_val))
+    #val_data = val_data.batch(BATCHSIZE).repeat()
 
 
-      model = Sequential()
-      model.add(LSTM(32,input_shape=x_train.shape[-2:],
-                                    return_sequences=True))
-      model.add(Dropout(RATE))
-      model.add(GRU(32, return_sequences=True)) 
-      model.add(Dropout(RATE))
-      model.add(GRU(32))  
-      model.add(Dropout(RATE))
-      model.add(Dense(FUTURE_TARGET))
-      model.add(Activation('tanh'))
+    model = Sequential()
+    model.add(LSTM(32,input_shape=x_train.shape[-2:],
+                                  return_sequences=True))
+    model.add(Dropout(RATE))
+    model.add(GRU(32, return_sequences=True)) 
+    model.add(Dropout(RATE))
+    model.add(GRU(32))  
+    model.add(Dropout(RATE))
+    model.add(Dense(FUTURE_TARGET))
+    model.add(Activation('tanh'))
 
-      model.compile(optimizer=RMSprop(), loss='mse',\
-        metrics=metric)
-      
-      # 训练
-      single_step_history = model.fit(train_data, epochs=EPOCHS,
-                                                  steps_per_epoch=EVALUATION_INTERVAL, 
-                                                  validation_data=val_data,
-                                                  validation_steps=50)
+    model.compile(optimizer=RMSprop(), loss='mse',\
+      metrics=self.metric)
+    
+    # 训练
+    single_step_history = model.fit(train_data, epochs=EPOCHS,
+                                                steps_per_epoch=EVALUATION_INTERVAL
+                                                #validation_data=val_data,
+                                                #validation_steps=50
+                                                )
 
-      # 评估模型                                       
-      # results = model.evaluate(x_test, y_test)#, BATCHSIZE=BATCHSIZE)
+    # 评估模型                                       
+    # results = model.evaluate(x_test, y_test)#, BATCHSIZE=BATCHSIZE)
 
-      # 存储模型
-      keras_model_path = os.path.join(GRUDIR_MULTI,"step = {},pre = {}".format(str(past_history),str(FUTURE_TARGET)))
-      model.save(keras_model_path)
+    # 存储模型
+    keras_model_path = os.path.join(GRUDIR_MULTI,"step = {},pre = {}"\
+      .format(str(self.past_history),str(FUTURE_TARGET)))
+    model.save(keras_model_path)
 
   # lstm单步
   def train_lstm_single(self):
@@ -784,51 +789,78 @@ class Net():
     model.save(keras_model_path)
 
   def train_mlp(self):
+    x_train, y_train,x_test, y_test = \
+                                self.data_p.trans_data(self.past_history,
+                                                      future_target = FUTURE_TARGET,
+                                                      time_dim=False)
+    input_dim = x_train.shape[-1]
+    model = tf.keras.models.Sequential()
+    model.add(Dense(64, input_dim=input_dim, activation='tanh'))
+    model.add(Dense(64, activation='tanh'))
+    model.add(Dense(FUTURE_TARGET, activation='tanh'))
 
-    for past_history in lag_list:
-      # 训练集
-      x_train, y_train ,x_val, y_val,x_test, y_test = \
-                                 self.data_p.trans_data(past_history,
-                                                        future_target = 1,
-                                                        time_dim=False)
-      input_dim = x_train.shape[-1]
-      model = tf.keras.models.Sequential()
-      model.add(Dense(64, input_dim=input_dim, activation='tanh'))
-      model.add(Dropout(RATE))
-      model.add(Dense(64, activation='tanh'))
-      model.add(Dropout(RATE))
-      model.add(Dense(1, activation='tanh'))
+    model.compile(loss='mse',
+                  optimizer='rmsprop',
+                  metrics=self.metric)
 
-      model.compile(loss='mse',
-                    optimizer='rmsprop',
-                    metrics=self.metric)
+    single_step_history = model.fit(x_train, y_train,
+              epochs=EPOCHS,
+              batch_size=128)
+    #results = model.evaluate(x_test, y_test, batch_size=128)
+    # 存储模型
+    keras_model_path = os.path.join(MLPDIR,"step = {},pre = {}".\
+      format(str(self.past_history),str(FUTURE_TARGET)))
+    model.save(keras_model_path)
 
-      single_step_history = model.fit(x_train, y_train,
-                epochs=EPOCHS,
-                batch_size=128,
-                validation_data = (x_val,y_val))
-      #results = model.evaluate(x_test, y_test, batch_size=128)
-      # 存储模型
-      keras_model_path = os.path.join(MLPDIR,"step = {}".format(str(past_history)))
-      model.save(keras_model_path)
+  def train_svr(self,d = 1):
 
-  def train_svr(self):
-    x_train, y_train ,x_val, y_val,x_test, y_test = \
+    x_train, y_train ,x_test, y_test = \
       self.data_p.trans_data(self.past_history,
-                            future_target = 1,
+                            future_target = d,
                             time_dim=False)
-                          
+
+    if(d != 1):
+      fdir =  'step = {},pre = {}'.format(str(self.past_history),str(d))
+      y_train = y_train[:,d-1]
+    else:
+      fdir =  'step = {}'.format(str(self.past_history))
+
     clf = svm.SVR()
     clf.fit(x_train, y_train)
     #y_pre = clf.predict(x_test)
 
     #plot_one_method(y_test,y_pre)
-    with open(os.path.join(SVRDIR,
-        'step = {}'.format(str(self.past_history))),'wb') as f:
+    with open(os.path.join(SVRDIR,fdir),'wb') as f:
       pickle.dump(clf,f)
 
     return 
-                
+
+def train_all(net):
+  net.train_mlp()
+  net.train_gru_multi()
+  net.train_lstm_multi()
+  net.train_svr(1)
+  net.train_svr(3)
+  net.train_svr(6)
+
+def pre_all(net):
+  for p in [1,3,6]:
+
+    plt.clf()
+
+    net.pre_gru_multi(p)
+    net.pre_lstm_multi(p)
+    net.pre_mlp_multi(p)
+    net.pre_svr_multi(p)
+
+
+    plt.plot([0,1],[0,1],c = 'k',label = 'Diagonal')
+    title = "Station B,lead-time = {}".format(str(p))
+    plt.title(title)
+    plt.legend()
+    plt.show()
+
 if __name__ == "__main__":
-  
-  
+  net = Net()
+  train_all(net)
+  pre_all(net)
