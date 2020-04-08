@@ -206,7 +206,7 @@ def plot_one_method(y_test,y_pre,label):
   linreg.fit(y_pre, y_test)
   y_l_pre = linreg.predict(x)
 
-  plt.scatter(y_pre, y_test,s = 2,alpha=0.3)
+  plt.scatter(y_pre, y_test,s = 3,alpha=1,label = label)
   plt.plot(x,y_l_pre,label = label)
   plt.plot(x,x,c = 'k')
 
@@ -324,7 +324,7 @@ class DataProcess():
       # 验证集
       #x_val_single, y_val_single = x_all[number:n2],y_all[number:n2]
       # 测试集
-      x_test, y_test = x_all[number:],y_all[number:]
+      x_test, y_test = x_all[number:][0:1000],y_all[number:][0:1000]
 
       return (x_train_single, y_train_single,x_test, y_test)
     else :
@@ -855,12 +855,11 @@ def pre_all(net):
 
 
     plt.plot([0,1],[0,1],c = 'k',label = 'Diagonal')
-    title = "Station B,lead-time = {}".format(str(p))
+    title = "Lead-time = {}".format(str(p))
     plt.title(title)
     plt.legend()
     plt.show()
 
 if __name__ == "__main__":
   net = Net()
-  train_all(net)
   pre_all(net)
